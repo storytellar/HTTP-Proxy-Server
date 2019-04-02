@@ -18,20 +18,22 @@ Global $error403 = 'HTTP/1.1 403 Forbidden' & @CRLF & _
 				  '<h1>Forbidden (Proxy blocked)</h1>' & @CRLF & _
 				  "<p>You don't have permission to access /on this server.</p>" & @CRLF & _
 				  '</body></html>'
-Global $success = 'HTTP/1.1 400 Bad Request' & @CRLF & _
-				  'Date: Thu, 28 Mar 2019 13:55:20 GMT' & _
+
+Global $errorNoWebsite = 'HTTP/1.1 403 Forbidden' & @CRLF & _
+				  'Date: Thu, 28 Mar 2019 13:55:20 GMT' & @CRLF & _
 				  'Server: Apache/2' & @CRLF & _
-				  'Content-Length: 192' & @CRLF & _
+				  'Content-Length: 230' & @CRLF & _
 				  'Connection: close' & @CRLF & _
 				  'Content-Type: text/html; charset=iso-8859-1' & @CRLF & _
 				  '' & @CRLF & _
 				  '<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">' & @CRLF & _
 				  '<html><head>' & @CRLF & _
-				  '<title>Success</title>' & @CRLF & _
+				  '<title>ERROR</title>' & @CRLF & _
 				  '</head><body>' & @CRLF & _
-				  '<h1>OK !</h1>' & @CRLF & _
-				  '<p>This website is NOT in the blacklist</p>' & @CRLF & _
+				  '<h1>Timeout !</h1>' & @CRLF & _
+				  "<p></p>" & @CRLF & _
 				  '</body></html>'
+
 
 HotKeySet("{ESC}", "Terminate")
 MsgBox(0,"PROXY","Proxy server is ON: 127.0.0.1:8888"& @CRLF &"EXIT: [ESC]")
@@ -39,9 +41,11 @@ MsgBox(0,"PROXY","Proxy server is ON: 127.0.0.1:8888"& @CRLF &"EXIT: [ESC]")
 
 TCPStartup ()
 $TCPListen = TCPListen("127.0.0.1",8888)
-
+Global $time = 0
 Global $count = 0
 While(1)
+
+
 	$count +=1
 	; wait connection
 	Do
@@ -49,26 +53,29 @@ While(1)
 	Until $iSocket <> -1
 	FileWriteLine("logs.txt",$count&"- Connected: " & $iSocket)
 
-	; wait message
+	; wait message from client
+	$dataReceive = ""
 	Do
-		$TCPReceiver = TCPRecv($iSocket,4096)
-	Until $TCPReceiver <> ""
-	FileWriteLine("logs.txt",$count&"- Message: " & @CRLF & $TCPReceiver)
+		$msgFromClient = TCPRecv($iSocket,4096)
+		$dataReceive = $dataReceive & $msgFromClient
+	Until $msgFromClient == ""
+	$msgFromClient = $dataReceive
+	FileWriteLine("logs.txt",$count&"- Message: " & @CRLF & $msgFromClient)
 
 	; Check if not POST / GET => Close
-	If (Not(StringInStr($TCPReceiver, "GET ") <> 0 OR StringInStr($TCPReceiver, "POST ") <> 0)) Then
+	If (Not(StringInStr($msgFromClient, "GET ") <> 0 OR StringInStr($msgFromClient, "POST ") <> 0)) Then
 		TCPCloseSocket($iSocket)
 		ContinueLoop
 	EndIf
 
 	; Check if Blacklist => Block & Close
-	If (isBlacklistRequest($TCPReceiver)) Then
+	If (isBlacklistRequest($msgFromClient)) Then
 		TCPSend($iSocket,$error403)
 		TCPCloseSocket($iSocket)
 		ContinueLoop
 	EndIf
 
-	$res = getResFromServer($TCPReceiver)
+	$res = getResFromServer($msgFromClient)
 	TCPSend($iSocket,$res)
 	FileWriteLine("logs.txt",$count&"- Reply: " & @CRLF & $res)
 	TCPCloseSocket($iSocket)
@@ -101,9 +108,7 @@ Func isWebsiteInBacklist($website)
 
 	$data = getDataFromFile("blacklist.conf")
 
-	If (StringInStr($data,$website)) Then
-		Return True
-	EndIf
+	If (StringInStr($data,$website)) Then Return True
 
 	Return False
 EndFunc
@@ -141,7 +146,7 @@ Func getResFromServer($request)
             ContinueLoop
         ElseIf @error Then
             $iError = @error
-            return $error403 ; temporary, this site is not exist
+            return $errorNoWebsite ; temporary, this site is not exist
         Else
            ; success
             ExitLoop
